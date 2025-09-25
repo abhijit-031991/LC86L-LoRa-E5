@@ -18,11 +18,13 @@ const uint8_t devType = 107;
 #define FSS_PIN PB9
 #define ACC_INT1_PIN PB4
 #define ACC_INT2_PIN PB3
-#define CS_INT_PIN PB0
+#define CS_INT_PIN PA0
+
+#define MAX_ELECTRODES 4
 
 // Structs //
 
-struct ping{
+struct longPing{
     uint16_t ta;    
     uint16_t cnt;
     float la;
@@ -36,6 +38,22 @@ struct data{
     uint16_t locktime;
     float lat;
     float lng;
-    byte hdop;
+    float hdop;
     byte id;
+}__attribute__((__packed__));
+
+struct reqPing{
+    uint16_t tag;
+    byte request;
+  }__attribute__((__packed__));
+
+struct setttings{
+    uint16_t tag;
+    int gpsFrq;
+    int gpsTout;
+    int hdop;
+    int radioFrq;
+    int startHour;
+    int endHour;
+    bool scheduled;
 }__attribute__((__packed__));
