@@ -39,7 +39,11 @@ struct data{
     float lat;
     float lng;
     float hdop;
-    byte id;
+    float x;
+    float y;
+    float z;
+    unsigned int count;
+    uint16_t id;
 }__attribute__((__packed__));
 
 struct reqPing{
