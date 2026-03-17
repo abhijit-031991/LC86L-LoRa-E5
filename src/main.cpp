@@ -51,6 +51,20 @@ unsigned long capCounterTarget = 10; // Check capacitive touch every 10 seconds
 unsigned long writeAdd = 0; // Last written to flash address
 unsigned long readAdd = 0; // Last read from flash address
 
+// Wear-leveled metadata persistence in the last flash sector
+#define FLASH_META_MAGIC  0xA5A5A5A5UL
+#define FLASH_META_SIZE   12u
+
+struct __attribute__((__packed__)) FlashMeta {
+    uint32_t magic;     // Set to FLASH_META_MAGIC when slot is valid
+    uint32_t writeAdd;  // Saved write pointer
+    uint32_t readAdd;   // Saved read pointer
+};
+
+// Forward declarations
+bool loadFlashMetadata();
+void saveFlashMetadata();
+
 // Setting Variables
 int gpsFrequency = 3;   // in minutes  
 int gpsTimeout = 120; // in seconds
@@ -70,6 +84,7 @@ float lat;
 float lng;
 time_t currentTime;
 unsigned int count = 0;
+unsigned int pingId = 0;
 
 int state = RADIOLIB_ERR_NONE;
 
@@ -229,13 +244,21 @@ void getlocation(bool setup,bool &GF){
         flash.powerUp();
         delay(10); // Give flash time to wake up
         
-        // Check if we need to erase a new sector
-        // Erase at sector boundaries (typically every 4096 bytes)
-        uint32_t sectorSize = flash.getSectorSize();
+        // Capacity guard — reserve the last sector for metadata (Change C)
+        uint32_t sectorSize   = flash.getSectorSize();
+        uint32_t metaSector   = flash.getCapacity() - sectorSize;
+        if (writeAdd + sizeof(dat) > metaSector) {
+            Serial.println(F("Flash data area full"));
+            flash.powerDown();
+            return;
+        }
+
+        uint32_t writeEndAddr = writeAdd + sizeof(dat) - 1;
+
+        // Case 1: write starts exactly on a sector boundary — erase this sector (Change A)
         if (writeAdd % sectorSize == 0) {
             Serial.print(F("Erasing sector at address: 0x"));
             Serial.println(writeAdd, HEX);
-            
             uint8_t eraseResult = flash.eraseSector(writeAdd);
             if (eraseResult != FLASH_OK) {
                 Serial.print(F("Sector erase FAILED! Error code: "));
@@ -244,6 +267,21 @@ void getlocation(bool setup,bool &GF){
                 return;
             }
             Serial.println(F("Sector erased successfully"));
+        }
+
+        // Case 2: write crosses into the next sector — erase that sector too (Change A)
+        if ((writeEndAddr / sectorSize) > (writeAdd / sectorSize)) {
+            uint32_t nextSector = ((writeAdd / sectorSize) + 1) * sectorSize;
+            Serial.print(F("Erasing next sector at address: 0x"));
+            Serial.println(nextSector, HEX);
+            uint8_t eraseResult = flash.eraseSector(nextSector);
+            if (eraseResult != FLASH_OK) {
+                Serial.print(F("Next sector erase FAILED! Error code: "));
+                Serial.println(eraseResult);
+                flash.powerDown();
+                return;
+            }
+            Serial.println(F("Next sector erased successfully"));
         }
         
         // Write the struct
@@ -269,6 +307,7 @@ void getlocation(bool setup,bool &GF){
                 
                 // Only increment address if write was truly successful
                 writeAdd += sizeof(dat);
+                saveFlashMetadata();    // persist pointers before powering flash down
             } else {
                 Serial.print(F("Verification read FAILED! Error: "));
                 Serial.println(readResult);
@@ -304,6 +343,8 @@ void getlocation(bool setup,bool &GF){
         }
         
         flash.powerDown();
+
+        pingId = 0; // Reset ping ID after each new GPS acquisition and flash write session
         
         Serial.print("Total records stored: "); 
         Serial.println(writeAdd / sizeof(dat));
@@ -430,6 +471,7 @@ void receive(unsigned long timeout){
             radio.standby(); // Ensure radio is ready to transmit
             pingLong.ta = tag;
             pingLong.cnt = writeAdd / sizeof(data); // Number of stored records
+            pingLong.pid = pingId;
             pingLong.la = lat;
             pingLong.ln = lng;
             pingLong.devtyp = devType; // Device type
@@ -442,6 +484,7 @@ void receive(unsigned long timeout){
                 Serial.print("Failed to send ping response. Error code: ");
                 Serial.println(state);
             }
+            pingId = pingId + 1; // Increment ping ID for next ping
             radio.startReceive(); // Go back to RX mode
           }
 
@@ -567,7 +610,7 @@ void deviceCalibration(bool mprSt){
       ping(CAPACITANCE_ERROR, true); // Indicate capacitance sensor error
     }
     
-    // getlocation(true, fixStatus); // Get initial GPS location with extended timeout
+    getlocation(true, fixStatus); // Get initial GPS location with extended timeout
     if (fixStatus){
       ping(GPS_SUCCESS, true); // Indicate GPS success
     } else {
@@ -650,6 +693,60 @@ void deviceCalibration(bool mprSt){
     radio.sleep(); // Put radio to sleep after calibration
 }
 
+bool loadFlashMetadata() {
+    uint32_t sector = flash.getCapacity() - flash.getSectorSize();
+    uint32_t slots  = flash.getSectorSize() / FLASH_META_SIZE;
+    FlashMeta meta;
+    bool found = false;
+    for (uint32_t i = 0; i < slots; i++) {
+        uint8_t result = flash.readStruct(sector + i * FLASH_META_SIZE, meta);
+        if (result != FLASH_OK)              continue;
+        if (meta.magic != FLASH_META_MAGIC)  continue;
+        writeAdd = meta.writeAdd;
+        readAdd  = meta.readAdd;
+        if (readAdd > writeAdd) { readAdd = 0; }  // guard: corrupted metadata
+        found = true;
+    }
+    if (found) {
+        Serial.print(F("Metadata restored: writeAdd=0x"));
+        Serial.print(writeAdd, HEX);
+        Serial.print(F(", readAdd=0x"));
+        Serial.println(readAdd, HEX);
+    } else {
+        Serial.println(F("No metadata - starting from address 0"));
+        writeAdd = 0;
+        readAdd  = 0;
+    }
+    return found;
+}
+
+// Persist writeAdd and readAdd to the next free slot in the metadata sector.
+// When all 341 slots are used the sector is erased and writing restarts from slot 0.
+void saveFlashMetadata() {
+    uint32_t sector = flash.getCapacity() - flash.getSectorSize();
+    uint32_t slots  = flash.getSectorSize() / FLASH_META_SIZE;
+    FlashMeta meta;
+    int32_t freeSlot = -1;
+    for (uint32_t i = 0; i < slots; i++) {
+        flash.readStruct(sector + i * FLASH_META_SIZE, meta);
+        if (meta.magic == 0xFFFFFFFF) {   // erased flash reads as 0xFF
+            freeSlot = (int32_t)i;
+            break;
+        }
+    }
+    if (freeSlot < 0) {
+        flash.eraseSector(sector);        // all slots used — wrap around
+        freeSlot = 0;
+    }
+    FlashMeta newMeta = { FLASH_META_MAGIC, (uint32_t)writeAdd, (uint32_t)readAdd };
+    uint8_t result = flash.writeStruct(
+        sector + (uint32_t)freeSlot * FLASH_META_SIZE, newMeta, true);
+    if (result != FLASH_OK) {
+        Serial.print(F("Metadata save failed: "));
+        Serial.println(result);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println("Starting setup...");
@@ -703,6 +800,7 @@ void setup() {
     if (flash.begin()) {
       Serial.println("SPI Flash initialized successfully.");
       flash.printChipInfo();
+      loadFlashMetadata();    // restore writeAdd/readAdd from NVM
     } else {
       Serial.println("Failed to initialize SPI Flash.");
     }

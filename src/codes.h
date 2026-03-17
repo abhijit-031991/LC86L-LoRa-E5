@@ -19,8 +19,8 @@
 #define FLASH_ERROR (byte)23            // Sent from device to App if flash error detected
 #define FLASH_SUCCESS (byte)24          // Sent from device to App if flash is functioning properly
 
-#define ABORT_CALIBRATION (byte)30      // Sent from App to device to abort calibration process
-#define CALIBRATION_ABORTED (byte)31    // Sent from device to App if calibration is
+#define ABORT_CALIBRATION (byte)32      // Sent from App to device to abort calibration process
+#define CALIBRATION_ABORTED (byte)33    // Sent from device to App if calibration is
 
 ////// Radio Ping Codes(30-39) //////
 #define SIMPLE_PING (byte)30            // Sent from device to App along with ID. App should respond with SIMPLE_PING_ACK
@@ -56,3 +56,11 @@
 #define CAPACITANCE_OK (byte)81       // Sent from device to App if capacitance sensor is functioning properly
 #define CAPACITANCE_ERROR (byte)82  // Sent from device to App if capacitance sensor error detected
 
+////// Argos Transmitter Codes (90-95)  //////
+#define ARGOS_OK (byte)91       // Sent from device to App if Argos transmitter is functioning properly
+#define ARGOS_TEST (byte)92     // Sent from device to App to indicate start of Argos transmitter test
+#define ARGOS_ERROR (byte)93    // Sent from device to App if Argos transmitter error detected
+ 
+////// Legacy Codes (100-199) //////
+#define SIMPLE_PING_LEG (byte)99
+#define SIMPLE_PING_ACK_LEG (byte)101

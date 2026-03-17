@@ -87,7 +87,6 @@ private:
     void writeEnable();
     void writeDisable();
     uint8_t readStatusRegister();
-    void waitForReady(uint32_t timeoutMs = 5000);
     bool isWriteEnabled();
     bool isBusy();
     
@@ -172,7 +171,13 @@ public:
     bool isInitialized() const { return _initialized; }
     void printChipInfo();
     void runDiagnostics();
-    
+    void softwareReset();
+    void forceReleaseFromPowerDown();
+    void clearProtectionBits();
+    bool waitForReady(uint32_t timeoutMs = 5000);
+    bool recover();
+
+
     // Configuration
     void setSPIFrequency(uint32_t frequency);
     uint32_t getSPIFrequency() const { return _spiFrequency; }

@@ -3,8 +3,8 @@ const float firmwareVersion = 1.0;
 
 // Device Information //
 
-const uint16_t tag = 11111;
-const uint8_t devType = 107;
+const uint16_t tag = 22222;
+const uint8_t devType = 201;
 
 // Pin Definitions //
 #define GPS_TX PC1
@@ -27,6 +27,7 @@ const uint8_t devType = 107;
 struct longPing{
     uint16_t ta;    
     uint16_t cnt;
+    uint16_t pid;
     float la;
     float ln;
     uint8_t devtyp;
