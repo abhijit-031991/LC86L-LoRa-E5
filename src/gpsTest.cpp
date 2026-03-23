@@ -1,49 +1,61 @@
-// #include <Arduino.h>
-// #include <HardwareSerial.h>
-// #include <definitions.h>
+/**
+ * gpsTest.cpp
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Raw GPS pass-through test for the LC86L-LoRa-E5.
+ *
+ * Bridges the LC86L GPS module (LPUART) to the USB Serial port so you can
+ * watch raw NMEA sentences in any terminal (PlatformIO monitor, PuTTY, etc.)
+ * and send PMTK commands back to the module.
+ *
+ * BUILD & FLASH:
+ *   pio run -e lora_e5_gps_test -t upload
+ *   pio device monitor -b 115200
+ *
+ * EXPECTED OUTPUT (once the module has a sky view):
+ *   $GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,...
+ *   $GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,...
+ *   ...
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 
-// // Create LPUART instance
-// HardwareSerial LPUART(GPS_RX, GPS_TX); // RX, TX pins
+#include <Arduino.h>
+#include <HardwareSerial.h>
+#include <definitions.h>
 
-// void setup() {
-//   // Initialize main serial for debugging
+HardwareSerial LPUART(GPS_RX, GPS_TX); // LPUART mapped to GPS RX/TX pins
 
-//    // Ensure GPS is disabled initially
+void setup() {
+    // USB Serial — debug output
+    Serial.begin(115200);
+    while (!Serial) { delay(10); }
+    delay(500);
 
-//   Serial.begin(115200);
-//   Serial.println("Starting LPUART on PC0(TX), PC1(RX)");
+    // GPS enable pin
+    pinMode(GPS_EN, OUTPUT);
+    digitalWrite(GPS_EN, LOW);
+    delay(100);
 
-//   delay(100); // Small delay to ensure Serial is ready
-//   Serial.println("LPUART initialized on PC0(TX), PC1(RX)");
-//   delay(100);
-//   Serial.println("Enabling GPS Pin");
-//   delay(100);
-//   pinMode(GPS_EN, OUTPUT);
-//   Serial.println("Switchibng GPS Pin");
-//   delay(100);
-//   digitalWrite(GPS_EN, HIGH);
-//   // Initialize LPUART
-//   LPUART.begin(9600); // Common baud rate, adjust as needed
-//   // Optional: Set specific LPUART parameters
-//   // LPUART.begin(baudrate, config)
-//   // Example: LPUART.begin(9600, SERIAL_8N1);
-  
-  
-//    // Wait for a second before starting communication
+    // Power up the GPS module
+    Serial.println(F("GPS Test — powering up LC86L..."));
+    digitalWrite(GPS_EN, HIGH);
+    delay(500); // Let module settle
 
-  
+    // Open LPUART to the GPS module
+    LPUART.begin(9600);
 
-//   Serial.println("GPS PIN EN");
-//   delay(1000); //
-// }
+    Serial.println(F("Bridge active: GPS NMEA -> USB Serial"));
+    Serial.println(F("Type PMTK commands here to send to the GPS module."));
+    Serial.println(F("──────────────────────────────────────────────────"));
+}
 
-// void loop() {
-//   // Send data via LPUART
-//   if(LPUART.available()){
-//     Serial.write(LPUART.read());
-//   } 
-//   if(Serial.available()){
-//     LPUART.write(Serial.read());
-//   }
+void loop() {
+    // Forward every NMEA byte from GPS to USB Serial
+    while (LPUART.available()) {
+        Serial.write(LPUART.read());
+    }
 
-// }
+    // Forward any command typed in the terminal back to the GPS module
+    while (Serial.available()) {
+        LPUART.write(Serial.read());
+    }
+}

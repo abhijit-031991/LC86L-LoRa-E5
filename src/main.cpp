@@ -1,28 +1,45 @@
 #include <Arduino.h>
+#include "features.h"
 #include <codes.h>
 #include <definitions.h>
+#ifdef FEATURE_GPS
 #include <TinyGPS++.h>
+#include <HardwareSerial.h>
+#include <TimeLib.h>
+#include <time.h>
+#endif
+#ifdef FEATURE_IMU
 #include <LSM6DSL.h>
+#endif
+#ifdef FEATURE_MPR121
 #include <MPR121_LoRaE5.h>
+#endif
 #include <STM32Stop1.h>
 #include <STM32RTC.h>
 #include <RadioLib.h>
+#ifdef FEATURE_FLASH
 #include <SPI.h>
 #include <SPIMemory.h>
 #include <LoRaE5_SPIFlash.h>
+#endif
 #include <STM32LowPower.h>
-#include <TimeLib.h>
-#include <time.h>
-#include <HardwareSerial.h>
 
+#ifdef FEATURE_GPS
 TinyGPSPlus gps;
+HardwareSerial LPUART(GPS_RX, GPS_TX); // RX, TX for GPS
+#endif
+#ifdef FEATURE_IMU
 LSM6DSL imu;
+#endif
+#ifdef FEATURE_MPR121
 MPR121_LoRaE5 mpr;
+#endif
 STM32Stop1 stop1;
 STM32RTC& rtc = STM32RTC::getInstance();
 STM32WLx radio = new STM32WLx_Module();
+#ifdef FEATURE_FLASH
 LoRaE5_SPIFlash flash(FSS_PIN, &SPI, 8000000); // SPI pins for LoRa E5 flash
-HardwareSerial LPUART(GPS_RX, GPS_TX); // RX, TX for GPS
+#endif
 
 static const uint32_t rfswitch_pins[] = { PA4, PA5, RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC };
 static const Module::RfSwitchMode_t rfswitch_table[] = {
@@ -35,18 +52,23 @@ static const Module::RfSwitchMode_t rfswitch_table[] = {
 
 ///// Variables //////
 
+#ifdef FEATURE_GPS
 // GPS Variables
-unsigned long gpsCounter = 0;
+volatile unsigned long gpsCounter = 0;
 unsigned long gpsCounterTarget;
+#endif
 
 // Ping Variables
-unsigned long pingCounter = 0;
+volatile unsigned long pingCounter = 0;
 unsigned long pingCounterTarget;
 
+#ifdef FEATURE_MPR121
 // Capacitive Touch Variables
-unsigned long capCounter = 0;
+volatile unsigned long capCounter = 0;
 unsigned long capCounterTarget = 10; // Check capacitive touch every 10 seconds
+#endif
 
+#ifdef FEATURE_FLASH
 //Flash Addresses
 unsigned long writeAdd = 0; // Last written to flash address
 unsigned long readAdd = 0; // Last read from flash address
@@ -64,13 +86,18 @@ struct __attribute__((__packed__)) FlashMeta {
 // Forward declarations
 bool loadFlashMetadata();
 void saveFlashMetadata();
+#endif // FEATURE_FLASH
 
 // Setting Variables
+#ifdef FEATURE_GPS
 int gpsFrequency = 3;   // in minutes  
 int gpsTimeout = 120; // in seconds
 int gpsHdop = 5; // HDOP value
+#endif
 int radioFrequency = 1;  // in minutes
+#ifdef FEATURE_MPR121
 int capFrequency = 30; // in seconds
+#endif
 int startHour = 0; // Start hour for scheduled mode
 int endHour = 23; // End hour for scheduled mode
 
@@ -80,9 +107,11 @@ bool scheduled = false;
 bool submerged = false;
 
 // Data Variables
-float lat;
-float lng;
+float lat  = 0.0f;
+float lng  = 0.0f;
+#ifdef FEATURE_GPS
 time_t currentTime;
+#endif
 unsigned int count = 0;
 unsigned int pingId = 0;
 
@@ -90,20 +119,27 @@ int state = RADIOLIB_ERR_NONE;
 
 ///////////////////////////////////////////////
 void calculateTargets() {
+#ifdef FEATURE_GPS
     gpsCounterTarget   = gpsFrequency  * 60;   // Convert minutes to seconds
+#endif
     pingCounterTarget = radioFrequency * 60; // Convert minutes to seconds
 
     char buffer[100]; // make sure it's big enough
 
     // Format the results into a string
-    sprintf(buffer,
-            "GPS Target: %ld | Radio Target: %ld",
-            gpsCounterTarget, pingCounterTarget);
+#ifdef FEATURE_GPS
+    snprintf(buffer, sizeof(buffer),
+             "GPS Target: %ld | Radio Target: %ld",
+             gpsCounterTarget, pingCounterTarget);
+#else
+    snprintf(buffer, sizeof(buffer), "Radio Target: %ld", pingCounterTarget);
+#endif
 
     // Print the string to Serial
     Serial.println(buffer);
 }
 
+#ifdef FEATURE_MPR121
 void checkElectrodes() {
     bool e1 = mpr.isTouched(0);
     bool e2 = mpr.isTouched(1);
@@ -130,14 +166,20 @@ void checkElectrodes() {
         submerged = false;
     }
 }
+#endif // FEATURE_MPR121
 
 void isr(void* data) {
-    // This ISR will be called when a touch event occurs
-    gpsCounter = gpsCounter + 1;
-    pingCounter = pingCounter + 1;
-    capCounter = capCounter + 1;
+    // This ISR is called on every RTC 1-second tick
+#ifdef FEATURE_GPS
+    gpsCounter++;
+#endif
+    pingCounter++;
+#ifdef FEATURE_MPR121
+    capCounter++;
+#endif
 }
 
+#ifdef FEATURE_GPS
 void getlocation(bool setup,bool &GF){
     Serial.println("Getting GPS location...");
     data dat;
@@ -228,7 +270,8 @@ void getlocation(bool setup,bool &GF){
         dat.lat = gps.location.isValid() ? gps.location.lat() : 0;
         dat.lng = gps.location.isValid() ? gps.location.lng() : 0;
         dat.hdop = gps.hdop.hdop();
-        dat.locktime = (millis() - start) / 1000; // Lock
+        unsigned long elapsed_ms = millis() - start;
+        dat.locktime = (elapsed_ms > 65535000UL) ? 65535u : (uint16_t)(elapsed_ms / 1000u);
         dat.count = count;
         // Set timestamp
         if (gps.time.isValid() && gps.date.isValid()) {
@@ -238,6 +281,7 @@ void getlocation(bool setup,bool &GF){
         } else {
             dat.datetime = rtc.getEpoch(); // Use system time if GPS time invalid
         }
+#ifdef FEATURE_FLASH
         // === FIXED FLASH WRITE SECTION ===
         Serial.println(F("Writing to flash..."));
         
@@ -351,10 +395,13 @@ void getlocation(bool setup,bool &GF){
         Serial.print("Write Address: 0x"); 
         Serial.println(writeAdd, HEX);
         Serial.flush();
+#endif // FEATURE_FLASH
     }
 }
+#endif // FEATURE_GPS
 
 // IMPROVED locationReadSend function:
+#ifdef FEATURE_FLASH
 void readSend(unsigned long startAddress) {
     data dat;
     flash.powerUp();
@@ -397,6 +444,7 @@ void readSend(unsigned long startAddress) {
     }
     radio.sleep();
 }
+#endif // FEATURE_FLASH
 
 void ping(byte requestCode, bool simplePing){
   // Wake radio before transmit
@@ -424,7 +472,11 @@ void ping(byte requestCode, bool simplePing){
   {
     longPing pingLong;
     pingLong.ta = tag;
+#ifdef FEATURE_FLASH
     pingLong.cnt = writeAdd / sizeof(data); // Number of stored records
+#else
+    pingLong.cnt = 0;
+#endif
     pingLong.la = lat;
     pingLong.ln = lng;
     pingLong.devtyp = devType; // Device type
@@ -463,14 +515,18 @@ void receive(unsigned long timeout){
         Serial.print(F("[LoRa] Bytes received: "));
         Serial.println(packetLength);
         
-        if (packetLength == sizeof(reqPacket))
+        if (packetLength == sizeof(reqPacket) && sizeof(reqPacket) <= sizeof(buffer))
         {
           memcpy(&reqPacket, buffer, sizeof(reqPacket));
           if (reqPacket.tag == tag && reqPacket.request == SIMPLE_PING_ACK) // Check if ping request is for this device
           {
             radio.standby(); // Ensure radio is ready to transmit
             pingLong.ta = tag;
+#ifdef FEATURE_FLASH
             pingLong.cnt = writeAdd / sizeof(data); // Number of stored records
+#else
+            pingLong.cnt = 0;
+#endif
             pingLong.pid = pingId;
             pingLong.la = lat;
             pingLong.ln = lng;
@@ -488,6 +544,7 @@ void receive(unsigned long timeout){
             radio.startReceive(); // Go back to RX mode
           }
 
+#ifdef FEATURE_FLASH
           if (reqPacket.tag == tag && reqPacket.request == DATA_DOWNLOAD_ALL) // Check if ping request is for this device
           {
               radio.standby(); // Ensure radio is ready to transmit
@@ -523,20 +580,29 @@ void receive(unsigned long timeout){
               state = radio.transmit((uint8_t*)&reqPacket, sizeof(reqPacket));
               Serial.println("New data download completed.");
               break; // Exit after download
-          }      
+          }
+#endif // FEATURE_FLASH
         }
-        if (packetLength == sizeof(settingsPacket))  // Check if setting is incoming and assimilate
+        if (packetLength == sizeof(settingsPacket) && sizeof(settingsPacket) <= sizeof(buffer))  // Check if setting is incoming and assimilate
         {
           memcpy(&settingsPacket, buffer, sizeof(settingsPacket));
           if (settingsPacket.tag == tag)
           {
-            gpsFrequency = settingsPacket.gpsFrq;
-            gpsTimeout = settingsPacket.gpsTout;
-            gpsHdop = settingsPacket.hdop;
-            radioFrequency = settingsPacket.radioFrq;
+#ifdef FEATURE_GPS
+            if (settingsPacket.gpsFrq >= 1 && settingsPacket.gpsFrq <= 1440)
+                gpsFrequency = settingsPacket.gpsFrq;
+            if (settingsPacket.gpsTout >= 10 && settingsPacket.gpsTout <= 3600)
+                gpsTimeout = settingsPacket.gpsTout;
+            if (settingsPacket.hdop >= 1 && settingsPacket.hdop <= 50)
+                gpsHdop = settingsPacket.hdop;
+#endif
+            if (settingsPacket.radioFrq >= 1 && settingsPacket.radioFrq <= 1440)
+                radioFrequency = settingsPacket.radioFrq;
             scheduled = settingsPacket.scheduled;
-            startHour = settingsPacket.startHour; // Update start hour
-            endHour = settingsPacket.endHour;     // Update end hour
+            if (settingsPacket.startHour >= 0 && settingsPacket.startHour <= 23)
+                startHour = settingsPacket.startHour;
+            if (settingsPacket.endHour >= 0 && settingsPacket.endHour <= 23)
+                endHour = settingsPacket.endHour;
             
             calculateTargets(); // Recalculate targets with new settings
 
@@ -584,6 +650,7 @@ void deviceCalibration(bool mprSt){
     radio.standby();
     ping(CALIBRATION_BEGIN, true);    // Indicate calibration start
     
+#ifdef FEATURE_FLASH
     flash.powerUp();
     delay(10); // Ensure flash is ready
     if(flash.getJEDECID() != 0){
@@ -601,7 +668,9 @@ void deviceCalibration(bool mprSt){
       ping(FLASH_ERROR, true); // Indicate flash error
     }
     flash.powerDown();
+#endif // FEATURE_FLASH
 
+#ifdef FEATURE_MPR121
     if (mprSt){
       Serial.println("MPR121 detected successfully.");
       ping(CAPACITANCE_OK, true); // Indicate capacitance sensor success
@@ -609,13 +678,15 @@ void deviceCalibration(bool mprSt){
       Serial.println("Failed to detect MPR121.");
       ping(CAPACITANCE_ERROR, true); // Indicate capacitance sensor error
     }
-    
+#endif // FEATURE_MPR121
+#ifdef FEATURE_GPS
     getlocation(true, fixStatus); // Get initial GPS location with extended timeout
     if (fixStatus){
       ping(GPS_SUCCESS, true); // Indicate GPS success
     } else {
       ping(GPS_ERROR, true); // Indicate GPS error
     }
+#endif // FEATURE_GPS
     ping(CALIBRATION_END, true); // Indicate calibration end
     
     Serial.println("Device calibration completed.");
@@ -642,25 +713,35 @@ void deviceCalibration(bool mprSt){
             Serial.print(F("[LoRa] Bytes received: "));
             Serial.println(packetLength);
 
-            if (packetLength == sizeof(setPacket))
+            if (packetLength == sizeof(setPacket) && sizeof(setPacket) <= sizeof(buffer))
             {
                 memcpy(&setPacket, buffer, sizeof(setPacket));
                 if (setPacket.tag == tag)
                 {
-                    gpsFrequency = setPacket.gpsFrq;
-                    gpsTimeout = setPacket.gpsTout;
-                    gpsHdop = setPacket.hdop;
-                    radioFrequency = setPacket.radioFrq;
+#ifdef FEATURE_GPS
+                    if (setPacket.gpsFrq >= 1 && setPacket.gpsFrq <= 1440)
+                        gpsFrequency = setPacket.gpsFrq;
+                    if (setPacket.gpsTout >= 10 && setPacket.gpsTout <= 3600)
+                        gpsTimeout = setPacket.gpsTout;
+                    if (setPacket.hdop >= 1 && setPacket.hdop <= 50)
+                        gpsHdop = setPacket.hdop;
+#endif
+                    if (setPacket.radioFrq >= 1 && setPacket.radioFrq <= 1440)
+                        radioFrequency = setPacket.radioFrq;
                     scheduled = setPacket.scheduled;
-                    startHour = setPacket.startHour;
-                    endHour = setPacket.endHour;
+                    if (setPacket.startHour >= 0 && setPacket.startHour <= 23)
+                        startHour = setPacket.startHour;
+                    if (setPacket.endHour >= 0 && setPacket.endHour <= 23)
+                        endHour = setPacket.endHour;
                     
+#ifdef FEATURE_GPS
                     // Use GPS time if available
                     if (gps.time.isValid() && gps.date.isValid()) {
                         setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), 
                                 gps.date.day(), gps.date.month(), gps.date.year());
                         rtc.setEpoch((uint32_t)now());
                     }
+#endif
                     
                     calculateTargets();
                     
@@ -670,7 +751,7 @@ void deviceCalibration(bool mprSt){
                     delay(100);
                 }
             } 
-            if (packetLength == sizeof(reqPacket))
+            if (packetLength == sizeof(reqPacket) && sizeof(reqPacket) <= sizeof(buffer))
             {
                 memcpy(&reqPacket, buffer, sizeof(reqPacket));
                 Serial.println(reqPacket.tag);
@@ -693,6 +774,7 @@ void deviceCalibration(bool mprSt){
     radio.sleep(); // Put radio to sleep after calibration
 }
 
+#ifdef FEATURE_FLASH
 bool loadFlashMetadata() {
     uint32_t sector = flash.getCapacity() - flash.getSectorSize();
     uint32_t slots  = flash.getSectorSize() / FLASH_META_SIZE;
@@ -746,12 +828,15 @@ void saveFlashMetadata() {
         Serial.println(result);
     }
 }
+#endif // FEATURE_FLASH
 
 void setup() {
     Serial.begin(115200);
     Serial.println("Starting setup...");
+#ifdef FEATURE_GPS
     pinMode(GPS_EN, OUTPUT);
     digitalWrite(GPS_EN, LOW); // Ensure GPS starts off
+#endif
     
     while (!Serial) {
         delay(10); // Wait for serial port to connect
@@ -783,8 +868,9 @@ void setup() {
     }
     
     if (retries == 0) {
-        Serial.println("Radio initialization failed after retries!");
-        while (true); // Halt - radio is critical
+        Serial.println("Radio initialization failed after retries! Restarting...");
+        Serial.flush();
+        NVIC_SystemReset(); // Reset MCU — allows hardware to recover on next boot
     }
 
     state = radio.transmit("Hello, world!");
@@ -797,6 +883,7 @@ void setup() {
 
     radio.sleep(); // Put radio to sleep to save power
 
+#ifdef FEATURE_FLASH
     if (flash.begin()) {
       Serial.println("SPI Flash initialized successfully.");
       flash.printChipInfo();
@@ -807,12 +894,15 @@ void setup() {
 
     flash.powerDown(); // Power down flash to save power
     delay(50);
+#endif // FEATURE_FLASH
 
+#ifdef FEATURE_MPR121
     bool mprStatus = mpr.begin();
 
     if (!mprStatus) {
-        Serial.println("MPR121 not found, check wiring!");
-        while (1) delay(10);
+        Serial.println("MPR121 not found, check wiring! Restarting...");
+        Serial.flush();
+        NVIC_SystemReset(); // Reset MCU — allows hardware to recover on next boot
     }
 
     // Put device into stop mode before config
@@ -827,19 +917,35 @@ void setup() {
     Serial.println("Electrodes 0–3 enabled.");
 
     deviceCalibration(mprStatus); // Calibrate device and report status
+#else
+    deviceCalibration(false);     // Run calibration without MPR121
+#endif // FEATURE_MPR121
 
+#ifdef FEATURE_GPS
     gpsCounterTarget = gpsFrequency * 60; // Convert minutes to seconds
+#endif
     pingCounterTarget = radioFrequency * 60; // Convert minutes to seconds
+#ifdef FEATURE_MPR121
     capCounterTarget = capFrequency; // In seconds
+#endif
 
+#ifdef FEATURE_MPR121
     pinMode(CS_INT_PIN, INPUT_ANALOG); // Set interrupt pin for MPR121
+#endif
+#if defined(FEATURE_MPR121) || defined(FEATURE_IMU)
     pinMode(SDA_PIN, INPUT_ANALOG); // Set SDA pin for I2C
     pinMode(SCL_PIN, INPUT_ANALOG); // Set SCL pin for I2C
+#endif
+#ifdef FEATURE_GPS
     pinMode(GPS_RX, INPUT_ANALOG); // Set GPS RX pin
     pinMode(GPS_TX, INPUT_ANALOG); // Set GPS TX pin
-
+#endif
+#if defined(FEATURE_MPR121) || defined(FEATURE_IMU)
     Wire.end(); // End I2C to save power
+#endif
+#ifdef FEATURE_FLASH
     SPI.end(); // End SPI to save power
+#endif
     Serial.println(digitalRead(CS_INT_PIN) ? "CS_INT_PIN is HIGH" : "CS_INT_PIN is LOW");
     Serial.println("Setup complete.");
     Serial.flush();
@@ -850,46 +956,60 @@ void setup() {
 
 void loop() {
 
+#ifdef FEATURE_MPR121
     if (capCounter >= capCounterTarget)
     {
         Serial.begin(115200);
         Wire.begin(); // Reinitialize I2C
         Serial.println("Woke up from deep sleep.");
-        checkElectrodes();        
+        checkElectrodes();
+        noInterrupts();
         capCounter = 0;
+        interrupts();
         Serial.flush();
         Serial.end();
         Wire.end(); // End I2C to save power
-    }    
+    }
+#endif
 
+#ifdef FEATURE_GPS
     if (gpsCounter >= gpsCounterTarget && !submerged)
-    { 
+    {
         bool fix = false;
         Serial.begin(115200);
         Serial.println("Woke up from deep sleep.");
         getlocation(false, fix);    // Get GPS location with standard timeout
+        noInterrupts();
         gpsCounter = 0;
+        interrupts();
         Serial.flush();
         Serial.end();
     }
-    
+#endif
+
     if (pingCounter >= pingCounterTarget && !submerged)
     {
         Serial.begin(115200);
         Serial.println("Woke up from deep sleep.");
+#ifdef FEATURE_FLASH
         SPI.begin(); // Reinitialize SPI
-        
+#endif
+
         // Wake up and reconfigure radio
         radio.setRfSwitchTable(rfswitch_pins, rfswitch_table);
         radio.standby();
-        
+
         ping(SIMPLE_PING, true);  // Simple ping
         receive(5000); // Listen for 5 seconds for any incoming messages
-        
+
+        noInterrupts();
         pingCounter = 0;
+        interrupts();
         Serial.flush();
         Serial.end();
+#ifdef FEATURE_FLASH
         SPI.end(); // End SPI to save power
+#endif
     }
     
     LowPower.deepSleep();        

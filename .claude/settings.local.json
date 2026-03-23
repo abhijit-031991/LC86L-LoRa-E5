@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(ls -la '/e/Arcturus Inc. -PC/New folder \\(2\\)/LC86L-LoRa-E5/')",
+      "Bash(find \"/e/Arcturus Inc. -PC/New folder \\(2\\)/LC86L-LoRa-E5\" -type f \\\\\\( -name \"*.cpp\" -o -name \"*.h\" -o -name \"*.hpp\" \\\\\\))",
+      "Bash(find \"/e/Arcturus Inc. -PC/New folder \\(2\\)/LC86L-LoRa-E5/src\" -type f)",
+      "Bash(find '/e/Arcturus Inc. -PC/New folder \\(2\\)/LC86L-LoRa-E5/lib' -type f)",
+      "Bash(python _apply_variants.py)",
+      "Bash(del \"E:\\\\Arcturus Inc. -PC\\\\New folder \\(2\\)\\\\LC86L-LoRa-E5\\\\_apply_variants.py\")"
     ]
   }
 }

@@ -3,7 +3,7 @@ const float firmwareVersion = 1.0;
 
 // Device Information //
 
-const uint16_t tag = 22222;
+const uint16_t tag = 20201;
 const uint8_t devType = 201;
 
 // Pin Definitions //
