@@ -54,7 +54,8 @@
 
 ////// Capacitance Sensor Codes (80-85)   //////
 #define CAPACITANCE_OK (byte)81       // Sent from device to App if capacitance sensor is functioning properly
-#define CAPACITANCE_ERROR (byte)82  // Sent from device to App if capacitance sensor error detected
+#define CAPACITANCE_ERROR (byte)82      // Sent from device to App if capacitance sensor error detected
+#define SURFACED_OK (byte)83            // Sent from device to App if the Device surfaces
 
 ////// Argos Transmitter Codes (90-95)  //////
 #define ARGOS_OK (byte)91       // Sent from device to App if Argos transmitter is functioning properly

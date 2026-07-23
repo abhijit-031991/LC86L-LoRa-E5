@@ -7,7 +7,27 @@
       "Bash(find \"/e/Arcturus Inc. -PC/New folder \\(2\\)/LC86L-LoRa-E5/src\" -type f)",
       "Bash(find '/e/Arcturus Inc. -PC/New folder \\(2\\)/LC86L-LoRa-E5/lib' -type f)",
       "Bash(python _apply_variants.py)",
-      "Bash(del \"E:\\\\Arcturus Inc. -PC\\\\New folder \\(2\\)\\\\LC86L-LoRa-E5\\\\_apply_variants.py\")"
+      "Bash(del \"E:\\\\Arcturus Inc. -PC\\\\New folder \\(2\\)\\\\LC86L-LoRa-E5\\\\_apply_variants.py\")",
+      "Bash(dir \"C:\\\\Users\\\\abhij\\\\.platformio\\\\packages\" /b)",
+      "Bash(xargs grep *)",
+      "Bash(python3 -c \"from pypdf import PdfReader; print\\('pypdf ok'\\)\")",
+      "Bash(python3 -c \"import pdfplumber; print\\('pdfplumber ok'\\)\")",
+      "PowerShell(python --version 2>&1)",
+      "PowerShell(py --version 2>&1)",
+      "WebFetch(domain:www.nxp.com)",
+      "WebFetch(domain:cdn-shop.adafruit.com)",
+      "WebFetch(domain:www.sparkfun.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:cdn.sparkfun.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+      "WebFetch(domain:files.seeedstudio.com)",
+      "WebFetch(domain:wiki.seeedstudio.com)",
+      "WebFetch(domain:www.st.com)",
+      "WebFetch(domain:community.st.com)",
+      "WebFetch(domain:deepbluembedded.com)",
+      "Bash(grep -v \"^.$\")",
+      "Bash(grep -v \"^..$\")"
     ]
   }
 }

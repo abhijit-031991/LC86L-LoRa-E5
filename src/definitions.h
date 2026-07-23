@@ -3,7 +3,7 @@ const float firmwareVersion = 1.0;
 
 // Device Information //
 
-const uint16_t tag = 20201;
+const uint16_t tag = 10012;
 const uint8_t devType = 201;
 
 // Pin Definitions //
@@ -18,7 +18,7 @@ const uint8_t devType = 201;
 #define FSS_PIN PB9
 #define ACC_INT1_PIN PB4
 #define ACC_INT2_PIN PB3
-#define CS_INT_PIN PA0
+#define CS_INT_PIN PB0
 
 #define MAX_ELECTRODES 4
 
