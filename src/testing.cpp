@@ -339,7 +339,7 @@ static void testGPS() {
     uint32_t byteCount   = 0;
     uint32_t sentenceCount = 0;
 
-    while (millis() - start < 20000UL) {
+    while (millis() - start < 40000UL) {
         while (LPUART.available()) {
             char c = (char)LPUART.read();
             Serial.print(c);

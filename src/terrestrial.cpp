@@ -921,7 +921,7 @@ void loop() {
 
         if (!scheduled || isInScheduledWindow()) {
             Serial.begin(115200);
-
+            delay(500);
             SPI.begin();   // SPI needed if a data download is requested
             radio.setRfSwitchTable(rfswitch_pins, rfswitch_table);
             radio.standby();
