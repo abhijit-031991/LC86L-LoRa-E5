@@ -107,6 +107,24 @@ struct __attribute__((__packed__)) FlashMeta {
 #define FLASH_META_SIZE   sizeof(FlashMeta)
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Settings persistence — stored in the second-to-last flash sector
+// Simple erase-and-rewrite (no wear leveling needed; settings change rarely)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#define FLASH_SETTINGS_MAGIC  0x5A5A5A5AUL
+
+struct __attribute__((__packed__)) FlashSettings {
+    uint32_t magic;
+    int16_t  gpsFrequency;
+    int16_t  gpsTimeout;
+    int16_t  gpsHdop;
+    int16_t  radioFrequency;
+    int8_t   startHour;
+    int8_t   endHour;
+    uint8_t  scheduled;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // IMU sampling — AccelMetrics configuration
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -134,9 +152,11 @@ float        imuBufY[IMU_BUFFER_SIZE];
 float        imuBufZ[IMU_BUFFER_SIZE];
 AccelMetrics accel(imuBufX, imuBufY, imuBufZ, IMU_BUFFER_SIZE);
 
-// Forward declarations for metadata helpers
+// Forward declarations
 bool loadFlashMetadata();
 void saveFlashMetadata();
+void loadFlashSettings();
+void saveFlashSettings();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runtime variables
@@ -395,9 +415,9 @@ void getlocation(bool setup, bool &GF) {
     flash.powerUp();
     delay(10);
 
-    // Guard: keep the last sector reserved for wear-leveled metadata
-    uint32_t sectorSize = flash.getSectorSize();
-    uint32_t metaSector = flash.getCapacity() - sectorSize;
+    // Guard: keep the last two sectors reserved (settings + metadata)
+    uint32_t sectorSize  = flash.getSectorSize();
+    uint32_t metaSector  = flash.getCapacity() - 2 * sectorSize;
     if (writeAdd + sizeof(dat) > metaSector) {
         Serial.println(F("Flash data area full — record not written"));
         flash.powerDown();
@@ -525,6 +545,55 @@ void saveFlashMetadata() {
     if (flash.writeStruct(sector + (uint32_t)freeSlot * FLASH_META_SIZE,
                           newMeta, /*verify=*/true) != FLASH_OK) {
         Serial.println(F("Metadata save failed"));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// loadFlashSettings — reads the settings sector and restores settings if the
+// magic value matches.  Call once on boot after flash.begin().
+// ─────────────────────────────────────────────────────────────────────────────
+
+void loadFlashSettings() {
+    uint32_t addr = flash.getCapacity() - 2 * flash.getSectorSize();
+    FlashSettings s;
+    if (flash.readStruct(addr, s) != FLASH_OK) {
+        Serial.println(F("Settings sector read failed — using defaults"));
+        return;
+    }
+    if (s.magic != FLASH_SETTINGS_MAGIC) {
+        Serial.println(F("No saved settings — using defaults"));
+        return;
+    }
+    gpsFrequency   = s.gpsFrequency;
+    gpsTimeout     = s.gpsTimeout;
+    gpsHdop        = s.gpsHdop;
+    radioFrequency = s.radioFrequency;
+    startHour      = s.startHour;
+    endHour        = s.endHour;
+    scheduled      = s.scheduled;
+    Serial.println(F("Settings restored from flash"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// saveFlashSettings — erases the settings sector and writes current settings.
+// Flash must be powered up by the caller.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void saveFlashSettings() {
+    uint32_t addr = flash.getCapacity() - 2 * flash.getSectorSize();
+    flash.eraseSector(addr);
+    FlashSettings s = {
+        FLASH_SETTINGS_MAGIC,
+        (int16_t)gpsFrequency,
+        (int16_t)gpsTimeout,
+        (int16_t)gpsHdop,
+        (int16_t)radioFrequency,
+        (int8_t)startHour,
+        (int8_t)endHour,
+        (uint8_t)scheduled
+    };
+    if (flash.writeStruct(addr, s, /*verify=*/true) != FLASH_OK) {
+        Serial.println(F("Settings save failed"));
     }
 }
 
@@ -674,6 +743,11 @@ void receive(unsigned long timeout) {
                     scheduled = settingsPacket.scheduled;
                     calculateTargets();
 
+                    flash.powerUp();
+                    delay(10);
+                    saveFlashSettings();
+                    flash.powerDown();
+
                     // Acknowledge
                     radio.standby();
                     reqPacket.tag     = tag;
@@ -770,6 +844,11 @@ void deviceCalibration() {
                     scheduled = setPacket.scheduled;
                     calculateTargets();
 
+                    flash.powerUp();
+                    delay(10);
+                    saveFlashSettings();
+                    flash.powerDown();
+
                     radio.standby();
                     ping(SETTINGS_UPDATED, true);
                     radio.standby();
@@ -850,7 +929,9 @@ void setup() {
         Serial.println(F("Flash initialised"));
         flash.powerUp();
         delay(10);
+        loadFlashSettings();
         loadFlashMetadata();
+        count = writeAdd / sizeof(data);
         flash.powerDown();
     } else {
         Serial.println(F("Flash init failed — data will not be logged"));
